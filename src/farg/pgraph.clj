@@ -71,7 +71,9 @@
 (defn- add-node* [g id attrs]
   (assoc-in g [:elems id] (merge attrs {::elem-type ::node ::id id})))
 
-(defn- add-edge* [g [id1 p1] [id2 p2]]
+(defn- add-edge*
+  "Returns [g new-edgeid]."
+  [g [id1 p1] [id2 p2]]
   (let [[g edgeid] (next-id g ::edge)
         iset (incident-set [id1 p1] [id2 p2])
         g (-> g
@@ -97,6 +99,13 @@
 (defn add-nodes [g & ids]
   (reduce add-node g ids))
 
+(defn- force-id
+  "Returns g, adding a node without attrs for id if necessary."
+  [g id]
+  (if (nil? (elem-type g id))
+    (add-node g id)
+    g))
+
 (defn- force-elem
   "Returns [g attrs], creating an element if necessary."
  ([g id]
@@ -110,7 +119,10 @@
   (cond
     :let [old-attrs (find-attrs g [id1 p1] [id2 p2])]
     (nil? old-attrs)
-      (let [[g edgeid] (add-edge* [id1 p1] [id2 p2])]
+      (let [[g edgeid] (-> g
+                           (force-id id1)
+                           (force-id id2)
+                           (add-edge* [id1 p1] [id2 p2]))]
         [g (find-attrs g edgeid)])
     [g old-attrs])))
 
@@ -149,7 +161,8 @@
   (let [[g attrs] (force-elem g id)]
     (assoc-in g [:elems id] (assoc attrs k v))))
  ([g [id1 p1] [id2 p2] k v]
-  (set-attr g (find-edgeid g [id1 p1] [id2 p2]) k v)))
+  (let [[g attrs] (force-elem g [id1 p1] [id2 p2])]
+    (set-attr g (find-edgeid g [id1 p1] [id2 p2]) k v))))
 
 (defn set-attrs
  ([g id new-attrs]
@@ -160,25 +173,26 @@
         id (find-edgeid g [id1 p1] [id2 p2])]
     (assoc-in g [:elems id] (merge (select-auto-attrs old-attrs) new-attrs)))))
 
-(defn add-edge-return-id [g [id1 p1] [id2 p2]]
-  ;TODO What if edge already exists? Has attrs?
-  (with-state [g g]
-    (when (nil? (elem-type g id1))
-      (add-node id1))
-    (when (nil? (elem-type g id2))
-      (add-node id2))
-    (add-edge* [id1 p1] [id2 p2])))
-
-(defn add-edge [g [id1 p1] [id2 p2]]
-  ;TODO What if edge already exists? Has attrs?
-  (let [[g _] (add-edge-return-id g [id1 p1] [id2 p2])]
-    g))
-
 (defn has-edge?
  ([g id]
   (= ::edge (attr g id ::elem-type)))
  ([g [id1 p1] [id2 p2]]
   (contains? (get g :edges) (incident-set [id1 p1] [id2 p2]))))
+
+(defn add-edge-return-id [g [id1 p1] [id2 p2]]
+  (with-state [g g]
+    (when (nil? (elem-type g id1))
+      (add-node id1))
+    (when (nil? (elem-type g id2))
+      (add-node id2))
+    (bind edgeid (find-edgeid g [id1 p1] [id2 p2]))
+    (if (nil? edgeid)
+      (add-edge* [id1 p1] [id2 p2])
+      (return [g edgeid]))))
+
+(defn add-edge [g [id1 p1] [id2 p2]]
+  (let [[g _] (add-edge-return-id g [id1 p1] [id2 p2])]
+    g))
 
 (defn ports-of
  ([g id]

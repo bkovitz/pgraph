@@ -166,5 +166,18 @@
     (add-edge [:n2 :out] [:n3 :in])  ;auto-create :n3
     (is (has-node? g :n3))
     (is (has-edge? g [:n3 :in] [:n2 :out]))
-    -- (pg/pprint g)
-    ))
+
+    (set-attrs [:n4 :out] [:n5 :in] {:a 3})  ;auto-create :n4, :n5, edge
+    (is (has-node? g :n4))
+    (is (has-node? g :n5))
+    (is (has-edge? g [:n4 :out] [:n5 :in]))
+    (is (= 3 (attr g [:n4 :out] [:n5 :in] :a)))
+
+    (set-attr [:n5 :out] [:n6 :in] :a 4)  ;auto-create :n6, edge
+    (is (has-node? g :n6))
+    (is (has-edge? g [:n5 :out] [:n6 :in]))
+    (is (= 4 (attr g [:n5 :out] [:n6 :in] :a)))
+
+    ;re-adding an edge shouldn't affect its attrs
+    (add-edge [:n5 :out] [:n6 :in])
+    (is (= 4 (attr g [:n5 :out] [:n6 :in] :a)))))

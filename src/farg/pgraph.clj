@@ -5,7 +5,8 @@
             [clojure.core.reducers :as r]
             [clojure.tools.trace :refer [deftrace] :as trace]
             [com.rpl.specter :as S]
-            [farg.util :as util :refer [dd dde]]))
+            [farg.util :as util :refer [dd dde]]
+            [farg.with-state :refer [with-state]]))
 
 (defrecord PGraph
   ;"A port graph where edges can link to edges.
@@ -39,8 +40,10 @@
                          [stems id])))]
     [(assoc g :stems stems) id]))
 
-(defn pgraph []
-  (->PGraph {} {::edge 0} {} {}))
+(declare add-nodes)
+
+(defn pgraph [& nodes]
+  (apply add-nodes (->PGraph {} {::edge 0} {} {}) nodes))
 
 (def auto-attrs #{::elem-type ::id ::incident-ports})
 
@@ -52,6 +55,9 @@
 
 (defn has-elem? [g id]
   (contains? (get g :elems) id))
+
+(defn elem-type [g id]
+  (S/select-one [:elems id ::elem-type] g))
 
 (defn find-edgeid [g [id1 p1] [id2 p2]]
   (get-in g [:edges #{[id1 p1] [id2 p2]}]))
@@ -87,6 +93,9 @@
       ::node
         (assoc-in g [:elems id] (merge old-attrs attrs))
         ))))
+
+(defn add-nodes [g & ids]
+  (reduce add-node g ids))
 
 (defn- force-elem
   "Returns [g attrs], creating an element if necessary."
@@ -152,11 +161,16 @@
     (assoc-in g [:elems id] (merge (select-auto-attrs old-attrs) new-attrs)))))
 
 (defn add-edge-return-id [g [id1 p1] [id2 p2]]
-  ;TODO Auto-create nodes. What if edge already exists? Has attrs?
-  (add-edge* g [id1 p1] [id2 p2]))
+  ;TODO What if edge already exists? Has attrs?
+  (with-state [g g]
+    (when (nil? (elem-type g id1))
+      (add-node id1))
+    (when (nil? (elem-type g id2))
+      (add-node id2))
+    (add-edge* [id1 p1] [id2 p2])))
 
 (defn add-edge [g [id1 p1] [id2 p2]]
-  ;TODO Auto-create nodes. What if edge already exists? Has attrs?
+  ;TODO What if edge already exists? Has attrs?
   (let [[g _] (add-edge-return-id g [id1 p1] [id2 p2])]
     g))
 
@@ -164,7 +178,7 @@
  ([g id]
   (= ::edge (attr g id ::elem-type)))
  ([g [id1 p1] [id2 p2]]
-  (contains? (get g :edges) (incident-set [:n1 :in] [:n2 :out]))))
+  (contains? (get g :edges) (incident-set [id1 p1] [id2 p2]))))
 
 (defn ports-of
  ([g id]
@@ -242,6 +256,41 @@
                (clojure.set/union (disj to-do edge)
                                   (set (incident-edges g edge)))
                so-far))))))
+
+(defn- rm-edge-from-port [g [id port-label] edgeid]
+  (cond
+    :let [g (S/setval [:ports id port-label (S/set-elem edgeid)] S/NONE g)
+          new-set (S/select-one [:ports id port-label] g)]
+    (not (empty? new-set))
+      g
+    :let [g (S/setval [:ports id port-label] S/NONE g)
+          new-map (S/select-one [:ports id] g)]
+    (not (empty? new-map))
+      g
+    (S/setval [:ports id] S/NONE g)))
+
+(defn remove-edge* [g edgeid]
+  (cond
+    :let [iset (S/select-one [:elems edgeid ::incident-ports] g)]
+    (nil? iset)
+      g
+    :let [g (reduce (fn [g port] (rm-edge-from-port g port edgeid))
+                    g
+                    (seq iset))]
+    (->> g
+      (S/setval [:edges (S/keypath iset)] S/NONE)
+      (S/setval [:elems edgeid] S/NONE))))
+
+(defn remove-edge
+ ([g edgeid]
+  (reduce remove-edge* g (transitive-closure-of-edges-to-edges g edgeid)))
+ ([g port1 port2]
+  (remove-edge g (find-edgeid g port1 port2))))
+
+(defn remove-node
+  [g id]
+  (->> (reduce remove-edge* g (transitive-closure-of-edges-to-edges g id))
+    (S/setval [:elems id] S/NONE)))
 
 ;(defn remove-elem
 ; ([g id]

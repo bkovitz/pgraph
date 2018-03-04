@@ -190,9 +190,12 @@
       (add-edge* [id1 p1] [id2 p2])
       (return [g edgeid]))))
 
-(defn add-edge [g [id1 p1] [id2 p2]]
+(defn add-edge
+ ([g [id1 p1] [id2 p2]]
   (let [[g _] (add-edge-return-id g [id1 p1] [id2 p2])]
     g))
+ ([g [id1 p1] [id2 p2] attrs]
+  (set-attrs g [id1 p1] [id2 p2] attrs)))
 
 (defn ports-of
  ([g id]
@@ -306,7 +309,26 @@
   (->> (reduce remove-edge* g (transitive-closure-of-edges-to-edges g id))
     (S/setval [:elems id] S/NONE)))
 
-;(defn remove-elem
-; ([g id]
-;  (cond
-;    :let [ty (elem-type g id)]
+(defn as-seq [g]
+  (for [m (->> g (S/select [:elems S/MAP-VALS]) (sort-by ::id))]
+    (let [id (::id m), as (dissoc-auto-attrs m)]
+      (case (::elem-type m)
+        ::node
+          (if (empty? as) (list 'node id) (list 'node id as))
+        ::edge
+          (let [iset (sort (::incident-ports m))]
+            (if (empty? as) `(~'edge ~id ~@iset) `(~'edge ~id ~@iset ~as)))))))
+
+(defn pgraph->edn [g]
+  (str "#farg.pgraph/pgraph["
+       (clojure.string/join \space (as-seq g))
+       "]"))
+
+(defmethod print-method PGraph [v ^java.io.Writer w]
+  (.write w (pgraph->edn v)))
+
+(defn vec->pgraph [v]
+  (dd v)
+  v)
+
+(def edn-readers {'farg.pgraph/pgraph vec->pgraph})

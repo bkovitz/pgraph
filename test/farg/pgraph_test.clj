@@ -181,3 +181,12 @@
     ;re-adding an edge shouldn't affect its attrs
     (add-edge [:n5 :out] [:n6 :in])
     (is (= 4 (attr g [:n5 :out] [:n6 :in] :a)))))
+
+(deftest test-edn
+  (with-state [g (pgraph :n1 :n2 :n3)]
+    (add-edge [:n1 :out] [:n2 :in] {:a 3})
+    (add-edge [:n2 :out] [:n3 :in])
+    (set-attr :n1 :a 1)
+    -- (dd (type g))
+    -- (dd (pr-str g))
+    ))

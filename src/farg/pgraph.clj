@@ -24,12 +24,18 @@
   ;[id p], i.e. port identifiers.
   ;
   ;ports is a map {id {port-label #{edge-ids...}}}.
-  [elems stems edges ports])
+  [elems stems edges ports gattrs])
 
 (defn- incident-set [[id1 p1] [id2 p2]]
   #{[id1 p1] [id2 p2]})
 
-(defn- next-id
+;TODO UT
+(defn port->node
+  "Returns the node that owns a port."
+  [[node _ :as port]]
+  node)
+
+(defn next-id
   "Returns [g id] where id is a new, unique id starting with stem."
   [g stem]
   (let [elems (get g :elems)
@@ -43,7 +49,7 @@
 (declare add-nodes)
 
 (defn pgraph [& nodes]
-  (apply add-nodes (->PGraph {} {::edge 0} {} {}) nodes))
+  (apply add-nodes (->PGraph {} {::edge 0} {} {} {}) nodes))
 
 (def auto-attrs #{::elem-type ::id ::incident-ports})
 
@@ -138,6 +144,12 @@
   [g]
   (-> g :edges vals))
 
+;TODO UT
+(defn elems
+  "Returns all elements of graph g: just their ids, not their attrs."
+  [g]
+  (-> g :elems keys))
+
 (defn has-node? [g id]
   (cond
     :let [attrs (get-in g [:elems id])]
@@ -211,6 +223,12 @@
  ([g edgeid]
   (S/select-one [:elems edgeid ::incident-ports] g)))
 
+;TODO UT
+(defn incident-elems
+  "Seq of elems (nodes and/or edges) incident to a given edge."
+ ([g edgeid]
+  (map port->node (incident-ports g edgeid))))
+
 (defn other-id
   "The id at an endpoint of the edge named by edgeid, other than 'id'."
   [g id edgeid]
@@ -230,6 +248,22 @@
   (->> (neighbors-of g id)
        (filter #(has-edge? g %))
        set))
+
+;;; gattrs: An attribute map that applies to the pgraph as a whole.
+
+(defn gattrs [g]
+  (get g :gattrs))
+
+(defn set-gattr [g k v]
+  (assoc-in g [:gattrs k] v))
+
+(defn gattr [g k]
+  (get-in g [:gattrs k]))
+
+(defn set-gattrs [g m]
+  (assoc g :gattrs m))
+
+;;; printing
 
 (defn- attrstr [g id]
   (let [as (dissoc-auto-attrs (attrs g id))]
@@ -310,14 +344,16 @@
     (S/setval [:elems id] S/NONE)))
 
 (defn as-seq [g]
-  (for [m (->> g (S/select [:elems S/MAP-VALS]) (sort-by ::id))]
+  (for [m (->> g (S/select [:elems S/MAP-VALS]) (sort-by #(-> % ::id str)))]
     (let [id (::id m), as (dissoc-auto-attrs m)]
       (case (::elem-type m)
         ::node
           (if (empty? as) (list 'node id) (list 'node id as))
         ::edge
-          (let [iset (sort (::incident-ports m))]
+          (let [iset (sort-by str (::incident-ports m))]
             (if (empty? as) `(~'edge ~id ~@iset) `(~'edge ~id ~@iset ~as)))))))
+
+;;; edn
 
 (defn pgraph->edn [g]
   (str "#farg.pgraph/pgraph["

@@ -187,6 +187,15 @@
     (add-edge [:n1 :out] [:n2 :in] {:a 3})
     (add-edge [:n2 :out] [:n3 :in])
     (set-attr :n1 :a 1)
-    -- (dd (type g))
-    -- (dd (pr-str g))
+    ;TODO NEXT Rebuild graph from edn
+    ;-- (dd (type g))
+    ;-- (dd (pr-str g))
     ))
+
+(deftest test-gattrs
+  (with-state [g (pgraph :ignored1 :ignored2)]
+    (is (= {} (pg/gattrs g)))
+    (pg/set-gattr :most-recent-x 22)
+    (is (= 22 (pg/gattr g :most-recent-x)))
+    (pg/set-gattrs {:a 1})
+    (is (= {:a 1} (pg/gattrs g)))))

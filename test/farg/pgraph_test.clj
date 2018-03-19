@@ -66,8 +66,8 @@
     (is (not (has-edge? g :n1)))
     (is (not (has-edge? g :not-defined)))
 
-    (is (=sets [e1] (incident-edges g :n1)))
-    (is (=sets [e1 e2] (incident-edges g :n2)))
+    (is (=sets [e1] (elem->incident-edges g :n1)))
+    (is (=sets [e1 e2] (elem->incident-edges g :n2)))
 
     (is (=sets [:out] (ports-of g :n1)))
     (is (=sets [:in :out] (ports-of g :n2)))

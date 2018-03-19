@@ -213,10 +213,16 @@
  ([g id]
   (S/select [:ports id S/MAP-KEYS] g)))
 
-(defn incident-edges
+(defn elem->incident-edges
  ([g id]
   (->> (S/select [:ports id S/MAP-VALS] g)
        (apply concat))))
+
+;TODO UT
+(defn port->incident-edges
+  [g [id port-label]]
+  (->> (S/select [:ports id port-label] g)
+       (apply concat)))
 
 (defn incident-ports
   "Set of [id port-label]'s incident to given edge."
@@ -240,7 +246,7 @@
       (recur (rest iset)))))
 
 (defn neighbors-of [g id]
-  (->> (incident-edges g id)
+  (->> (elem->incident-edges g id)
        (map #(other-id g id %))
        distinct))
 
@@ -248,6 +254,18 @@
   (->> (neighbors-of g id)
        (filter #(has-edge? g %))
        set))
+
+;TODO UT
+(defn neighbor-via
+  "Returns the id of the elem connected by an edge to [id port-label], or
+  nil if none. If more than one edge is incident to [id port-label],
+  arbitrarily chooses the \"first\"."
+  [g [id port-label :as port]]
+  (cond
+    :let [edgeid (first (port->incident-edges g port))]
+    (nil? edgeid)
+      nil
+    (other-id g id edgeid)))
 
 ;;; gattrs: An attribute map that applies to the pgraph as a whole.
 
@@ -279,6 +297,7 @@
       :do (print (attrstr g edgeid)))))
 
 (defn pprint [g]
+  (println "Gattrs:" (gattrs g))
   (cond
     :let [ns (nodes g)]
     (empty? ns)
@@ -298,14 +317,14 @@
 (defn transitive-closure-of-edges-to-edges
  ([g id]
   (loop [so-far (if (has-edge? g id) #{id} #{})
-         to-do (into #{} (incident-edges g id))]
+         to-do (into #{} (elem->incident-edges g id))]
     (cond
       (empty? to-do) so-far
-      :let [edge (first to-do)]
-      (recur (conj so-far edge)
+      :let [edgeid (first to-do)]
+      (recur (conj so-far edgeid)
              (clojure.set/difference
-               (clojure.set/union (disj to-do edge)
-                                  (set (incident-edges g edge)))
+               (clojure.set/union (disj to-do edgeid)
+                                  (set (elem->incident-edges g edgeid)))
                so-far))))))
 
 (defn- rm-edge-from-port [g [id port-label] edgeid]
@@ -343,6 +362,7 @@
   (->> (reduce remove-edge* g (transitive-closure-of-edges-to-edges g id))
     (S/setval [:elems id] S/NONE)))
 
+;TODO Include the gattrs.
 (defn as-seq [g]
   (for [m (->> g (S/select [:elems S/MAP-VALS]) (sort-by #(-> % ::id str)))]
     (let [id (::id m), as (dissoc-auto-attrs m)]

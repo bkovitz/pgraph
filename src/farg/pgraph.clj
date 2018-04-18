@@ -6,7 +6,8 @@
             [clojure.tools.trace :refer [deftrace] :as trace]
             [com.rpl.specter :as S]
             [farg.util :as util :refer [dd dde]]
-            [farg.with-state :refer [with-state]]))
+            [farg.with-state :refer [with-state]]
+            [potemkin :refer [def-map-type]]))
 
 (defrecord PGraph
   ;"A port graph where edges can link to edges.
@@ -24,7 +25,9 @@
   ;[id p], i.e. port identifiers.
   ;
   ;ports is a map {id {port-label #{edge-ids...}}}.
-  [elems stems edges ports gattrs])
+  [elems stems edges ports])
+
+(def impl-keys #{:elems :stems :edges :ports})
 
 (defn- incident-set [[id1 p1] [id2 p2]]
   #{[id1 p1] [id2 p2]})
@@ -49,7 +52,7 @@
 (declare add-nodes)
 
 (defn pgraph [& nodes]
-  (apply add-nodes (->PGraph {} {::edge 0} {} {} {}) nodes))
+  (apply add-nodes (->PGraph {} {::edge 0} {} {}) nodes))
 
 (def auto-attrs #{::elem-type ::id ::incident-ports})
 
@@ -79,8 +82,10 @@
 
 (defn- add-edge*
   "Returns [g new-edgeid]."
-  [g [id1 p1] [id2 p2]]
-  (let [[g edgeid] (next-id g ::edge)
+ ([g [id1 p1] [id2 p2]]
+  (add-edge* g [id1 p1] [id2 p2] ::edge))
+ ([g [id1 p1] [id2 p2] stem]
+  (let [[g edgeid] (next-id g stem)
         iset (incident-set [id1 p1] [id2 p2])
         g (-> g
           (assoc-in [:elems edgeid] {::elem-type ::edge, ::id edgeid,
@@ -88,7 +93,7 @@
           (assoc-in [:edges iset] edgeid)
           (update-in [:ports id1 p1] (fnil conj #{}) edgeid)
           (update-in [:ports id2 p2] (fnil conj #{}) edgeid))]
-    [g edgeid]))
+    [g edgeid])))
 
 (defn add-node
  ([g id]
@@ -176,6 +181,19 @@
   (let [[g attrs] (force-elem g [id1 p1] [id2 p2])]
     (set-attr g (find-edgeid g [id1 p1] [id2 p2]) k v))))
 
+;TODO UT
+(defn update-attr
+  [g id k f & args]
+  (let [[g attrs] (force-elem g id)]
+    (assoc-in g [:elems id] (apply update attrs k f args))))
+
+;TODO UT
+(defn update-edge-attr
+  [g [id1 p1] [id2 p2] k f & args]
+  (let [[g attrs] (force-elem g [id1 p1] [id2 p2])
+        edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (assoc-in g [:elems edgeid] (apply update attrs k f args))))
+
 (defn set-attrs
  ([g id new-attrs]
   (let [[g old-attrs] (force-elem g id)]
@@ -184,6 +202,12 @@
   (let [[g old-attrs] (force-elem g [id1 p1] [id2 p2])
         id (find-edgeid g [id1 p1] [id2 p2])]
     (assoc-in g [:elems id] (merge (select-auto-attrs old-attrs) new-attrs)))))
+
+(defn merge-default-attrs
+ ([g id default-attrs]
+  (set-attrs g id (merge default-attrs (attrs g id))))
+ ([g id default-attrs1 default-attrs2 & more]
+  (merge-default-attrs g id (apply merge default-attrs1 default-attrs2 more))))
 
 (defn has-edge?
  ([g id]
@@ -206,8 +230,17 @@
  ([g [id1 p1] [id2 p2]]
   (let [[g _] (add-edge-return-id g [id1 p1] [id2 p2])]
     g))
- ([g [id1 p1] [id2 p2] attrs]
-  (set-attrs g [id1 p1] [id2 p2] attrs)))
+ ([g [id1 p1] [id2 p2] attrs] ;TODO UT this arity
+  (cond
+    :let [existing-edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (some? existing-edgeid)
+      (set-attrs g [id1 p1] [id2 p2] attrs)
+    :let [stem (get attrs :class)]
+    (nil? stem)
+      (set-attrs g [id1 p1] [id2 p2] attrs)
+    (with-state [g g]
+      (setq edgeid (add-edge* [id1 p1] [id2 p2] stem))
+      (set-attrs edgeid attrs)))))
 
 (defn ports-of
  ([g id]
@@ -234,6 +267,17 @@
   "Seq of elems (nodes and/or edges) incident to a given edge."
  ([g edgeid]
   (map port->node (incident-ports g edgeid))))
+
+;TODO UT
+(defn edge-as-map
+  "Returns map {mate1's-port-label elem, mate2's-port-label elem} plus
+  all of the edge's attrs."
+  [fm edgeid]
+  (merge (attrs fm edgeid)
+         (->> (incident-ports fm edgeid)
+              (map reverse)
+              (map vec)
+              (into {}))))
 
 (defn other-id
   "The id at an endpoint of the edge named by edgeid, other than 'id'."
@@ -270,14 +314,18 @@
 ;;; gattrs: An attribute map that applies to the pgraph as a whole.
 
 (defn gattrs [g]
-  (get g :gattrs))
+  (apply dissoc g impl-keys)
+  #_(get g :gattrs))
 
+;TODO rm
 (defn set-gattr [g k v]
   (assoc-in g [:gattrs k] v))
 
+;TODO rm
 (defn gattr [g k]
   (get-in g [:gattrs k]))
 
+;TODO rm
 (defn set-gattrs [g m]
   (assoc g :gattrs m))
 
@@ -289,6 +337,7 @@
 
 (defn- edgestr [g edgeid]
   (with-out-str
+    (print (str edgeid \space))
     (cond
       :let [ports (incident-ports g edgeid)]
       (= 1 (count ports))
@@ -299,14 +348,14 @@
 (defn pprint [g]
   (println "Gattrs:" (gattrs g))
   (cond
-    :let [ns (nodes g)]
+    :let [ns (sort-by str (nodes g))]
     (empty? ns)
       (println "Nodes: None\nEdges: None")
     :do (do
           (println "Nodes:")
           (doseq [node ns]
             (println (str "  " node (attrstr g node)))))
-    :let [es (edges g)]
+    :let [es (sort-by str (edges g))]
     (empty? es)
       (println "Edges: None")
     :do (do

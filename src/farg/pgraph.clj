@@ -5,7 +5,7 @@
             [clojure.core.reducers :as r]
             [clojure.tools.trace :refer [deftrace] :as trace]
             [com.rpl.specter :as S]
-            [farg.util :as util :refer [dd dde]]
+            [farg.util :as util :refer [dd dde map-str]]
             [farg.with-state :refer [with-state]]
             [potemkin :refer [def-map-type]]))
 
@@ -194,6 +194,16 @@
         edgeid (find-edgeid g [id1 p1] [id2 p2])]
     (assoc-in g [:elems edgeid] (apply update attrs k f args))))
 
+(defn weight [g id]
+  (cond
+    :let [w (attr g id :weight)]
+    (nil? w)
+      0.0
+    w))
+
+(defn add-weight [g id delta]
+  (set-attr g id :weight (+ delta (weight g id))))
+
 (defn set-attrs
  ([g id new-attrs]
   (let [[g old-attrs] (force-elem g id)]
@@ -270,7 +280,7 @@
 
 ;TODO UT
 (defn edge-as-map
-  "Returns map {mate1's-port-label elem, mate2's-port-label elem} plus
+  "Returns map {mate1's-port-label mate1-id, mate2's-port-label mate2-id} plus
   all of the edge's attrs."
   [fm edgeid]
   (merge (attrs fm edgeid)
@@ -294,7 +304,9 @@
        (map #(other-id g id %))
        distinct))
 
-(defn neighboring-edges-of [g id]
+(defn neighboring-edges-of
+  "Neighbors that are edges."
+  [g id]
   (->> (neighbors-of g id)
        (filter #(has-edge? g %))
        set))
@@ -331,11 +343,11 @@
 
 ;;; printing
 
-(defn- attrstr [g id]
+(defn attrstr [g id]
   (let [as (dissoc-auto-attrs (attrs g id))]
-    (if (empty? as) "" (str \space (pr-str as)))))
+    (if (empty? as) "" (str \space (map-str as)))))
 
-(defn- edgestr [g edgeid]
+(defn edgestr [g edgeid]
   (with-out-str
     (print (str edgeid \space))
     (cond
@@ -344,6 +356,16 @@
         (pr (first ports) (first ports))
       :do (print (->> ports (map pr-str) sort (clojure.string/join \space)))
       :do (print (attrstr g edgeid)))))
+
+(defn pprint-nodes [g]
+  (cond
+    :let [ns (sort-by str (nodes g))]
+    (empty? ns)
+      (println "Nodes: None")
+    (do
+      (println "Nodes:")
+      (doseq [node ns]
+        (println (str "  " node (attrstr g node)))))))
 
 (defn pprint [g]
   (println "Gattrs:" (gattrs g))

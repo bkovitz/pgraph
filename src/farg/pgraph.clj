@@ -272,6 +272,8 @@
  ([g edgeid]
   (S/select-one [:elems edgeid ::incident-ports] g)))
 
+(def edge->incident-ports incident-ports)
+
 ;TODO UT
 (defn incident-elems
   "Seq of elems (nodes and/or edges) incident to a given edge."
@@ -299,6 +301,17 @@
       (not= id iset-id) iset-id
       (recur (rest iset)))))
 
+;TODO UT
+(defn other-port
+  "The port at an endpoint of the edge named by edgeid, other than 'port'."
+  [g [id port-label :as port] edgeid]
+  (loop [ports (seq (incident-ports g edgeid))]
+    (cond
+      (empty? ports) nil
+      :let [that-port (first ports)]
+      (not= port that-port) that-port
+      (recur (rest ports)))))
+
 (defn neighbors-of [g id]
   (->> (elem->incident-edges g id)
        (map #(other-id g id %))
@@ -322,6 +335,25 @@
     (nil? edgeid)
       nil
     (other-id g id edgeid)))
+
+;TODO UT
+(defn neighbors-via
+  "Returns lazy seq of all elems connected by an edge to [id port-label]."
+  [g [id port-label :as port]]
+  (->> (port->incident-edges g port)
+       (map #(other-id g id %))
+       distinct))
+
+(def port->neighbor neighbor-via)
+(def port->neighbors neighbors-via)
+
+;TODO UT
+(defn port->neighboring-ports
+  "Returns lazy seq of all ports connected by an edge to [id port-label]."
+  [g [id port-label :as port]]
+  (->> (port->incident-edges g port)
+       (map #(other-port g port %))
+       distinct))
 
 ;;; gattrs: An attribute map that applies to the pgraph as a whole.
 
@@ -432,6 +464,17 @@
   [g id]
   (->> (reduce remove-edge* g (transitive-closure-of-edges-to-edges g id))
     (S/setval [:elems id] S/NONE)))
+
+;TODO UT
+(defn remove-elem
+  [g id]
+  (case (elem-type g id)
+    ::node
+      (remove-node g id)
+    ::edge
+      (remove-edge g id)
+    nil
+      g))
 
 ;TODO Include the gattrs.
 (defn as-seq [g]

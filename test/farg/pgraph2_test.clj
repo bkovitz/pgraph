@@ -49,4 +49,45 @@
     (add-edge nil [:n1 :in] [:n2 :out])
     (bind edgeid (find-edgeid g [:n1 :in] [:n2 :out]))
     (is (= ::pg/edge001 edgeid))
+    (is (has-edge? g edgeid))
+    (is (has-edge? g [:n1 :in] [:n2 :out]))
+
+    (is (=msets #{::pg/edge001} (edges g)))
+
+    (set-attr [:n2 :out] [:n1 :in] :weight 1.0)
+    (is (= 1.0 (attr g edgeid :weight)))
+    (is (= 1.0 (attr g [:n1 :in] [:n2 :out] :weight)))
+    (is {:weight 1.0} (user-attrs g edgeid))
+    (is {:weight 1.0} (user-attrs g [:n1 :in] [:n2 :out]))
+    (is {::pg/elem-type ::pg/edge
+         ::pg/id ::pg/edge001
+         ::pg/incident-ports #{[:n2 :out] [:n1 :in]}
+         :weight 1.0})
+
+    (set-attrs :n1 {:x 1 :y 2})
+    (is (= {:x 1 :y 2} (user-attrs g :n1)))
+
+    (set-attrs [:n1 :in] [:n2 :out] {:w 2.0 :x 3.0})
+    (is (= {:w 2.0 :x 3.0} (user-attrs g [:n1 :in] [:n2 :out])))
+
+    (rm-attr [:n1 :in] [:n2 :out] :w)
+    (is (not (has-attr? g edgeid :w)))
+    (rm-attr edgeid :x)
+    (is (not (has-attr? g [:n1 :in] [:n2 :out] :x)))))
+
+#_(deftest test-neighbors
+  (with-state [g (pgraph :n1 :n2 :n3)]
+    (add-edge [:n1 :out] [:n2 :in])
+    (add-edge [:n2 :out] [:n3 :in])
+    (bind e1 (find-edgeid g [:n1 :out] [:n2 :in]))
+    (bind e2 (find-edgeid g [:n2 :out] [:n3 :in]))
+    (is (=sets [e1 e2] (edges g)))
+
+    (is (has-edge? g e1))
+    (is (not (has-edge? g :n1)))
+    (is (not (has-edge? g :not-defined)))
+
+    (is (=msets [e1] (elem->incident-edges g :n1)))
+    (is (=msets [e1 e2] (elem->incident-edges g :n2)))
+
   ))

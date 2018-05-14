@@ -27,11 +27,16 @@
   [elems stems edges ports])
 
 (def impl-keys #{:elems :stems :edges :ports})
-(def impl-attrs #{::id ::elem-type})
+(def impl-attrs #{::id ::elem-type ::incident-ports})
 
 (defn no-such-elem [id]
   (throw (IllegalArgumentException.
     (<< "pgraph has no elem ~{id}."))))
+
+(defn no-such-edge [& args]
+  (let [args (clojure.string/join \space args)]
+    (throw (IllegalArgumentException.
+      (<< "pgraph has no edge ~{args}.")))))
 
 (defn- incident-set [[id1 p1] [id2 p2]]
   #{[id1 p1] [id2 p2]})
@@ -47,9 +52,8 @@
              (S/selected? [::elem-type (S/pred= ::node)]) ::id] g))
 
 (defn edges [g]
-  (->> (get g :elems)
-       (filter #(= (::elem-type %) ::edge))
-       (map first)))
+  (S/select [:elems S/MAP-VALS
+             (S/selected? [::elem-type (S/pred= ::edge)]) ::id] g))
 
 (defn has-elem? [g id]
   (S/selected-any? [:elems (S/must id)] g))
@@ -114,30 +118,74 @@
 (defn add-edge [& args]
   (first (apply make-edge args)))
 
-(defn attr [g id k]
+(defn attr
+ ([g id k]
   (S/select-one [:elems id k] g))
+ ([g [id1 p1] [id2 p2] k]
+  (when-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (attr g edgeid k))))
 
-(defn set-attr [g id k v]
-  (S/setval [:elems id k] v g))
+(defn set-attr
+ ([g id k v]
+  (if (has-elem? g id)
+    (S/setval [:elems id k] v g)
+    (no-such-elem id)))
+ ([g [id1 p1] [id2 p2] k v]
+  (cond
+    :let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (some? edgeid)
+      (S/setval [:elems edgeid k] v g)
+    (no-such-edge [id1 p1] [id2 p2]))))
 
-(defn has-attr? [g id k]
+(defn has-attr?
+ ([g id k]
   (S/selected-any? [:elems id (S/must k)] g))
+ ([g [id1 p1] [id2 p2] k]
+  (when-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (has-attr? g edgeid k))))
 
 (defn update-attr [g id k f & args]
   (if (has-elem? g id)
     (S/transform [:elems id k] #(apply f % args) g)
     (no-such-elem id)))
 
-(defn rm-attr [g id k]
-  (S/setval [:elems id k] S/NONE g))
+(defn rm-attr
+ ([g id k]
+  (if (has-elem? g id)
+    (S/setval [:elems id k] S/NONE g)
+    g))
+ ([g [id1 p1] [id2 p2] k]
+  (if-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (S/setval [:elems edgeid k] S/NONE g)
+    g)))
 
-(defn attrs [g id]
+(defn attrs
+ ([g id]
   (S/select-one [:elems id] g))
+ ([g [id1 p1] [id2 p2]]
+  (when-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (attrs g edgeid))))
 
-(defn user-attrs [g id]
-  (apply dissoc (attrs g id) impl-attrs))
+(defn set-attrs
+ ([g id as]
+  (if (has-elem? g id)
+    (S/transform [:elems id]
+      #(merge (select-keys % impl-attrs) as)
+      g)
+    (no-such-elem id)))
+ ([g [id1 p1] [id2 p2] as]
+  (if-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    (set-attrs g edgeid as)
+    (no-such-edge [id1 p1] [id2 p2]))))
+
+(defn user-attrs [& args]
+  (apply dissoc (apply attrs args) impl-attrs))
 
 (defn pgraph [& nodeids]
   (with-state [g (->PGraph {} {::edge 0} {} {})]
     (doseq [nodeid nodeids]
       (add-node nodeid))))
+
+;;; Ports and neighbors
+
+;(defn elem->incident-edges

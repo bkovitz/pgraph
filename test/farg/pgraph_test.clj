@@ -69,8 +69,8 @@
     (is (=sets [e1] (elem->incident-edges g :n1)))
     (is (=sets [e1 e2] (elem->incident-edges g :n2)))
 
-    (is (=sets [:out] (ports-of g :n1)))
-    (is (=sets [:in :out] (ports-of g :n2)))
+    (is (=sets [:out] (port-labels-of g :n1)))
+    (is (=sets [:in :out] (port-labels-of g :n2)))
 
     (is (= #{[:n1 :out] [:n2 :in]} (incident-ports g e1)))
     (is (= #{[:n2 :out] [:n3 :in]} (incident-ports g e2)))

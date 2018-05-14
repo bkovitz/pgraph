@@ -3,6 +3,7 @@
   (:refer-clojure :exclude [rand rand-int cond pprint])
   (:require [better-cond.core :refer [cond]]
             [clojure.core.reducers :as r]
+            [clojure.core.strint :refer [<<]]
             [clojure.tools.trace :refer [deftrace] :as trace]
             [com.rpl.specter :as S]
             [farg.util :as util :refer [dd dde map-str]]
@@ -173,6 +174,12 @@
  ([g [id1 p1] [id2 p2]]
   (attrs g (find-edgeid g [id1 p1] [id2 p2]))))
 
+;TODO UT
+(defn user-attrs
+  [& args]
+  (-> (apply attrs args)
+      dissoc-auto-attrs))
+
 (defn set-attr
  ([g id k v]
   (let [[g attrs] (force-elem g id)]
@@ -245,14 +252,14 @@
     :let [existing-edgeid (find-edgeid g [id1 p1] [id2 p2])]
     (some? existing-edgeid)
       (set-attrs g [id1 p1] [id2 p2] attrs)
-    :let [stem (get attrs :class)]
+    :let [stem (get attrs :class)] ;HACK pgraph shouldn't know :class
     (nil? stem)
       (set-attrs g [id1 p1] [id2 p2] attrs)
     (with-state [g g]
       (setq edgeid (add-edge* [id1 p1] [id2 p2] stem))
       (set-attrs edgeid attrs)))))
 
-(defn ports-of
+(defn port-labels-of
  ([g id]
   (S/select [:ports id S/MAP-KEYS] g)))
 
@@ -316,6 +323,10 @@
   (->> (elem->incident-edges g id)
        (map #(other-id g id %))
        distinct))
+
+;TODO UT
+(defn neighbor-of? [g thisid thatid]
+  (some #{thatid} (neighbors-of g thisid)))
 
 (defn neighboring-edges-of
   "Neighbors that are edges."
@@ -494,7 +505,10 @@
        (clojure.string/join \space (as-seq g))
        "]"))
 
-(defmethod print-method PGraph [v ^java.io.Writer w]
+(defmethod print-method PGraph [g ^java.io.Writer w]
+  (.write w (<< "#PGraph[nodes ~(count (nodes g)), edges ~(count (edges g))]")))
+
+(defmethod print-dup PGraph [v ^java.io.Writer w]
   (.write w (pgraph->edn v)))
 
 (defn vec->pgraph [v]

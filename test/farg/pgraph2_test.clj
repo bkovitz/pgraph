@@ -73,15 +73,20 @@
     (rm-attr [:n1 :in] [:n2 :out] :w)
     (is (not (has-attr? g edgeid :w)))
     (rm-attr edgeid :x)
-    (is (not (has-attr? g [:n1 :in] [:n2 :out] :x)))))
+    (is (not (has-attr? g [:n1 :in] [:n2 :out] :x)))
+    
+    ;It's not an error to remove an attr from a nonexistent id
+    (rm-attr :non-existent :a)
+    (rm-attr [:no :port] [:nothing :port] :a)
+    ))
 
-#_(deftest test-neighbors
+(deftest test-neighbors
   (with-state [g (pgraph :n1 :n2 :n3)]
-    (add-edge [:n1 :out] [:n2 :in])
-    (add-edge [:n2 :out] [:n3 :in])
+    (add-edge nil [:n1 :out] [:n2 :in])
+    (add-edge nil [:n2 :out] [:n3 :in])
     (bind e1 (find-edgeid g [:n1 :out] [:n2 :in]))
     (bind e2 (find-edgeid g [:n2 :out] [:n3 :in]))
-    (is (=sets [e1 e2] (edges g)))
+    (is (=msets [e1 e2] (edges g)))
 
     (is (has-edge? g e1))
     (is (not (has-edge? g :n1)))
@@ -89,5 +94,25 @@
 
     (is (=msets [e1] (elem->incident-edges g :n1)))
     (is (=msets [e1 e2] (elem->incident-edges g :n2)))
+    (is (empty? (elem->incident-edges g :non-existent)))
 
-  ))
+    (is (= [e1] (port->incident-edges g [:n1 :out])))
+    (is (= [e1] (port->incident-edges g [:n2 :in])))
+    (is (= [e2] (port->incident-edges g [:n2 :out])))
+    (is (= [e2] (port->incident-edges g [:n3 :in])))
+
+    (is (=msets [:out] (elem->port-labels g :n1)))
+    (is (=msets [:in :out] (elem->port-labels g :n2)))
+
+    (is (=msets [[:n1 :out]] (elem->ports g :n1)))
+
+    (is (= #{[:n1 :out] [:n2 :in]} (edge->incident-ports g e1)))
+    (is (= #{[:n2 :out] [:n3 :in]} (edge->incident-ports g e2)))
+
+    (is (= :n2 (other-id g :n1 e1)))
+    (is (= :n1 (other-id g :n2 e1)))
+    (is (= :n3 (other-id g :n2 e2)))
+    (is (= :n2 (other-id g :n3 e2)))
+
+    (is (=msets [:n2] (neighbors-of g :n1)))
+    (is (=msets [:n1 :n3] (neighbors-of g :n2)))))

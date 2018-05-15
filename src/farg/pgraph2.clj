@@ -5,6 +5,7 @@
             [clojure.core.strint :refer [<<]]
             [clojure.tools.trace :refer [deftrace] :as trace]
             [com.rpl.specter :as S]
+            [farg.pmatch :refer [pmatch]]
             [farg.util :as util :refer [dd dde map-str]]
             [farg.with-state :refer [with-state]]))
 
@@ -44,17 +45,6 @@
 (defn find-edgeid [g [id1 p1] [id2 p2]]
   (S/select-one (S/keypath :edges (incident-set [id1 p1] [id2 p2])) g))
 
-(defn elems [g]
-  (S/select [:elems S/MAP-KEYS] g))
-
-(defn nodes [g]
-  (S/select [:elems S/MAP-VALS
-             (S/selected? [::elem-type (S/pred= ::node)]) ::id] g))
-
-(defn edges [g]
-  (S/select [:elems S/MAP-VALS
-             (S/selected? [::elem-type (S/pred= ::edge)]) ::id] g))
-
 (defn has-elem? [g id]
   (S/selected-any? [:elems (S/must id)] g))
 
@@ -69,6 +59,40 @@
 
 (defn elem->type [g id]
   (S/select-one [:elems id ::elem-type] g))
+
+(defn- parse-id
+  "Parses common arguments. Referred-to id need not exist."
+ ([g id]
+  [g id])
+ ([g [id1 p1] [id2 p2]]
+  [g (find-edgeid g [id1 p1] [id2 p2])]))
+
+(defn- parse-id+1
+ ([g id arg]
+  [g id arg])
+ ([g [id1 p1] [id2 p2] arg]
+  [g (find-edgeid g [id1 p1] [id2 p2]) arg]))
+
+(defn- existing-id+1
+ ([g id arg]
+  (if (has-elem? g id)
+    [g id arg]
+    (no-such-elem id)))
+ ([g [id1 p1] [id2 p2] arg]
+  (if-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
+    [g edgeid arg]
+    (no-such-edge [id1 p1] [id2 p2]))))
+
+(defn elems [g]
+  (S/select [:elems S/MAP-KEYS] g))
+
+(defn nodes [g]
+  (S/select [:elems S/MAP-VALS
+             (S/selected? [::elem-type (S/pred= ::node)]) ::id] g))
+
+(defn edges [g]
+  (S/select [:elems S/MAP-VALS
+             (S/selected? [::elem-type (S/pred= ::edge)]) ::id] g))
 
 (defn- next-id
   "Returns [g id] where id is a new, unique id starting with stem."
@@ -93,6 +117,9 @@
   (first (apply make-node args)))
 
 (defn make-edge
+ ([g a1 a2]
+  (throw (IllegalArgumentException.
+    "Only 3 arguments passed to make-edge. Did you forget the stem?")))
  ([g stem [id1 p1] [id2 p2]]
   (make-edge g stem [id1 p1] [id2 p2] {}))
  ([g stem [id1 p1] [id2 p2] attrs]
@@ -137,46 +164,38 @@
       (S/setval [:elems edgeid k] v g)
     (no-such-edge [id1 p1] [id2 p2]))))
 
-(defn has-attr?
+#_(defn has-attr?
  ([g id k]
   (S/selected-any? [:elems id (S/must k)] g))
  ([g [id1 p1] [id2 p2] k]
   (when-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
     (has-attr? g edgeid k))))
 
+(defn has-attr? [& args]
+  (let [[g id k] (apply parse-id+1 args)]
+    (S/selected-any? [:elems id (S/must k)] g)))
+
+;Can't do variadic args for node/edge here
 (defn update-attr [g id k f & args]
   (if (has-elem? g id)
     (S/transform [:elems id k] #(apply f % args) g)
     (no-such-elem id)))
 
-(defn rm-attr
- ([g id k]
-  (if (has-elem? g id)
-    (S/setval [:elems id k] S/NONE g)
-    g))
- ([g [id1 p1] [id2 p2] k]
-  (if-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
-    (S/setval [:elems edgeid k] S/NONE g)
-    g)))
+(defn rm-attr [& args]
+  (let [[g id k] (apply parse-id+1 args)]
+    (if (has-elem? g id)
+      (S/setval [:elems id k] S/NONE g)
+      g)))
 
-(defn attrs
- ([g id]
-  (S/select-one [:elems id] g))
- ([g [id1 p1] [id2 p2]]
-  (when-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
-    (attrs g edgeid))))
+(defn attrs [& args]
+  (let [[g id] (apply parse-id args)]
+    (S/select-one [:elems id] g)))
 
-(defn set-attrs
- ([g id as]
-  (if (has-elem? g id)
+(defn set-attrs [& args]
+  (let [[g id as] (apply existing-id+1 args)]
     (S/transform [:elems id]
       #(merge (select-keys % impl-attrs) as)
-      g)
-    (no-such-elem id)))
- ([g [id1 p1] [id2 p2] as]
-  (if-let [edgeid (find-edgeid g [id1 p1] [id2 p2])]
-    (set-attrs g edgeid as)
-    (no-such-edge [id1 p1] [id2 p2]))))
+      g)))
 
 (defn user-attrs [& args]
   (apply dissoc (apply attrs args) impl-attrs))
@@ -188,4 +207,72 @@
 
 ;;; Ports and neighbors
 
-;(defn elem->incident-edges
+(defn elem->incident-edges [g id]
+  (->> (S/select [:ports id S/MAP-VALS] g)
+       (apply concat)))
+
+(def node->incident-edges elem->incident-edges)
+
+;TODO UT
+(defn edge->incident-edges
+ ([g edgeid]
+  (elem->incident-edges g edgeid))
+ ([g [id1 p1] [id2 p2]]
+  (elem->incident-edges g (find-edgeid g [id1 p1] [id2 p2]))))
+
+(defn port->incident-edges [g [id port-label]]
+  (->> (S/select [:ports id port-label] g)
+       (apply concat)))
+
+(defn elem->port-labels [g id]
+  (S/select [:ports id S/MAP-KEYS] g))
+
+(def node->port-labels elem->port-labels)
+
+;TODO UT
+(defn edge->port-labels
+ ([g edgeid]
+  (elem->port-labels g edgeid))
+ ([g [id1 p1] [id2 p2]]
+  (elem->port-labels g (find-edgeid g [id1 p1] [id2 p2]))))
+
+(defn elem->ports [g id]
+  (map (fn [port-label] [id port-label])
+       (elem->port-labels g id)))
+
+(def node->ports elem->ports)
+
+;TODO UT
+(defn edge->ports
+ ([g edgeid]
+  (elem->ports g edgeid))
+ ([g [id1 p1] [id2 p2]]
+  (elem->ports g (find-edgeid g [id1 p1] [id2 p2]))))
+
+(defn edge->incident-ports
+ ([g edgeid]
+  (S/select-one [:elems edgeid ::incident-ports] g))
+ ([g [id1 p1] [id2 p2]]
+  (edge->incident-ports g (find-edgeid g [id1 p1] [id2 p2]))))
+
+(defn other-id
+ ([g id edgeid]
+  (cond
+    :let [iset (edge->incident-ports g edgeid)]
+    (empty? iset)
+      nil
+    :let [[iset-id _] (first iset)]
+    (not= id iset-id)
+      iset-id
+    :let [[iset-id _] (second iset)]
+    iset-id))
+ ([g id [id1 p1] [id2 p2]]
+  (other-id g id (find-edgeid g [id1 p1] [id2 p2]))))
+
+(defn neighbors-of
+ ([g id]
+  (->> (elem->incident-edges g id)
+       (map #(other-id g id %))
+       distinct))
+ ([g [id1 p1] [id2 p2]]
+  (neighbors-of g (find-edgeid g [id1 p1] [id2 p2]))))

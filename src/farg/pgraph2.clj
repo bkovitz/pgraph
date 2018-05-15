@@ -60,6 +60,19 @@
 (defn elem->type [g id]
   (S/select-one [:elems id ::elem-type] g))
 
+(defn elems [g]
+  (S/select [:elems S/MAP-KEYS] g))
+
+(defn nodes [g]
+  (S/select [:elems S/MAP-VALS
+             (S/selected? [::elem-type (S/pred= ::node)]) ::id] g))
+
+(defn edges [g]
+  (S/select [:elems S/MAP-VALS
+             (S/selected? [::elem-type (S/pred= ::edge)]) ::id] g))
+
+;;; Macros
+
 (defmacro defidfunc [fname [g id & args] & body]
   `(defn ~fname
     ([~g ~id ~@args]
@@ -78,16 +91,19 @@
        ~@body
        (no-such-edge port1# port2#)))))
 
-(defn elems [g]
-  (S/select [:elems S/MAP-KEYS] g))
-
-(defn nodes [g]
-  (S/select [:elems S/MAP-VALS
-             (S/selected? [::elem-type (S/pred= ::node)]) ::id] g))
-
-(defn edges [g]
-  (S/select [:elems S/MAP-VALS
-             (S/selected? [::elem-type (S/pred= ::edge)]) ::id] g))
+(defmacro def3idfuncs [elemfunc nodefunc edgefunc [g id & args] & body]
+  `(do
+     (defidfunc ~elemfunc [~g ~id ~@args] ~@body)
+     (defn ~nodefunc [~g ~id ~@args]
+       (assert (let [type# (elem->type ~g ~id)]
+                 (or (nil? type#) (= ::node type#)))
+               (str ~id " is not a node."))
+       ~@body)
+     (defidfunc ~edgefunc [~g ~id ~@args]
+       (assert (let [type# (elem->type ~g ~id)]
+                 (or (nil? type#) (= ::edge type#)))
+               (str ~id " is not an edge."))
+       ~@body)))
 
 ;;; Making nodes and edges
 
@@ -187,41 +203,24 @@
 
 ;;; Ports and neighbors
 
-(defn elem->incident-edges [g id]
+(defidfunc edge->incident-ports [g edgeid]
+  (S/select-one [:elems edgeid ::incident-ports] g))
+
+(def3idfuncs elem->incident-edges node->incident-edges edge->incident-edges
+  [g id]
   (->> (S/select [:ports (S/must id) S/MAP-VALS] g)
        (apply concat)))
-
-(def node->incident-edges elem->incident-edges)
-
-;TODO UT
-(defidfunc edge->incident-edges [g edgeid]
-  (elem->incident-edges g edgeid))
 
 (defn port->incident-edges [g [id port-label]]
   (->> (S/select [:ports id port-label] g)
        (apply concat)))
 
-(defn elem->port-labels [g id]
+(def3idfuncs elem->port-labels node->port-labels edge->port-labels [g id]
   (S/select [:ports id S/MAP-KEYS] g))
 
-(def node->port-labels elem->port-labels)
-
-;TODO UT
-(defidfunc edge->port-labels [g edgeid]
-  (elem->port-labels g edgeid))
-
-(defn elem->ports [g id]
+(def3idfuncs elem->ports node->ports edge->ports [g id]
   (map (fn [port-label] [id port-label])
        (elem->port-labels g id)))
-
-(def node->ports elem->ports)
-
-;TODO UT
-(defidfunc edge->ports [g edgeid]
-  (elem->ports g edgeid))
-
-(defidfunc edge->incident-ports [g edgeid]
-  (S/select-one [:elems edgeid ::incident-ports] g))
 
 (defidfunc other-id [g id edgeid]
   (cond
@@ -278,12 +277,9 @@
          (S/setval (S/keypath :edges iset) S/NONE)
          (S/setval [:elems edgeid] S/NONE))))
 
-(defidfunc remove-elem [g id]
+(def3idfuncs remove-elem remove-node remove-edge [g id]
   ;TODO Post Specter issue: (S/setval [:elems nil] S/NONE) rms :elems
   (if (some? id)
     (->> (reduce remove-edge* g (transitive-closure-of-edges-to-edges g id))
          (S/setval [:elems id] S/NONE))
     g))
-
-(def remove-node remove-elem)
-(def remove-edge remove-elem)

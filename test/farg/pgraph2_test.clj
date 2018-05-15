@@ -95,6 +95,7 @@
     (is (=msets [e1] (elem->incident-edges g :n1)))
     (is (=msets [e1 e2] (elem->incident-edges g :n2)))
     (is (empty? (elem->incident-edges g :non-existent)))
+    (is (empty? (elem->incident-edges g nil)))
 
     (is (= [e1] (port->incident-edges g [:n1 :out])))
     (is (= [e1] (port->incident-edges g [:n2 :in])))
@@ -108,6 +109,7 @@
 
     (is (= #{[:n1 :out] [:n2 :in]} (edge->incident-ports g e1)))
     (is (= #{[:n2 :out] [:n3 :in]} (edge->incident-ports g e2)))
+    (is (empty? (edge->incident-ports g nil)))
 
     (is (= :n2 (other-id g :n1 e1)))
     (is (= :n1 (other-id g :n2 e1)))
@@ -116,3 +118,81 @@
 
     (is (=msets [:n2] (neighbors-of g :n1)))
     (is (=msets [:n1 :n3] (neighbors-of g :n2)))))
+
+(deftest test-edges-to-edges
+  (with-state [g (pgraph :n1 :n2 :n3 :n4)]
+    (setq e1 (make-edge nil [:n1 :out] [:n2 :in]))
+    (setq e2 (make-edge nil [:n3 :out] [e1 :in]))
+    (setq e3 (make-edge nil [:n4 :out] [e2 :in]))
+    (setq e4 (make-edge nil [:n3 :out] [:n4 :in]))
+
+    (is (= #{e1 e2 e3} (transitive-closure-of-edges-to-edges g :n1)))
+    (is (= #{e1 e2 e3} (transitive-closure-of-edges-to-edges g :n2)))
+    (is (= #{e2 e3 e4} (transitive-closure-of-edges-to-edges g :n3)))
+    (is (= #{e3 e4}    (transitive-closure-of-edges-to-edges g :n4)))
+    (is (= #{e1 e2 e3} (transitive-closure-of-edges-to-edges g e1)))
+    (is (= #{e2 e3}    (transitive-closure-of-edges-to-edges g e2)))
+    (is (= #{e3}       (transitive-closure-of-edges-to-edges g e3)))
+    (is (= #{e4}       (transitive-closure-of-edges-to-edges g e4)))
+    (is (= #{}         (transitive-closure-of-edges-to-edges g :nonexistent)))
+    (is (= #{}         (transitive-closure-of-edges-to-edges g nil)))
+
+    ;Removing the endpoint of an edge can cause a cascade of removals, if
+    ;that edge was the endpoint of another edge.
+
+    ;Removing nodes:
+    -- (with-state [g g]
+         (remove-node :n1)
+         (is (=msets [:n2 :n3 :n4] (nodes g)))
+         (is (=msets [e4] (edges g))))
+    -- (with-state [g g]
+         (remove-node :n2)
+         (is (=msets [:n1 :n3 :n4] (nodes g)))
+         (is (=msets [e4] (edges g))))
+    -- (with-state [g g]
+         (remove-node :n3)
+         (is (=msets [:n1 :n2 :n4] (nodes g)))
+         (is (=msets [e1] (edges g))))
+    -- (with-state [g g]
+         (remove-node :n4)
+         (is (=msets [:n1 :n2 :n3] (nodes g)))
+         (is (=msets [e1 e2] (edges g))))
+    -- (with-state [g g]
+         (remove-node :nonexistent)
+         (is (=msets [:n1 :n2 :n3 :n4] (nodes g)))
+         (is (=msets [e1 e2 e3 e4] (edges g))))
+
+    ;Removing edges:
+    -- (with-state [g g]
+         (remove-edge e1)
+         (is (=msets [:n1 :n2 :n3 :n4] (nodes g)))
+         (is (=msets [e4] (edges g))))
+    -- (with-state [g g]
+         (remove-edge [:n1 :out] [:n2 :in])
+         (is (=msets [:n1 :n2 :n3 :n4] (nodes g)))
+         (is (=msets [e4] (edges g))))
+    -- (with-state [g g]
+         (remove-edge e2)
+         (is (=msets [:n1 :n2 :n3 :n4] (nodes g)))
+         (is (=msets [e1 e4] (edges g))))
+    -- (with-state [g g]
+         (remove-edge e3)
+         (is (=msets [:n1 :n2 :n3 :n4] (nodes g)))
+         (is (=msets [e1 e2 e4] (edges g))))
+    -- (with-state [g g]
+         (remove-edge e4)
+         (is (=msets [:n1 :n2 :n3 :n4] (nodes g)))
+         (is (=msets [e1 e2 e3] (edges g))))
+    -- (with-state [g g]
+         (remove-edge [:nonexistent1 :out] [:nonexistent1 :in])
+         (is (=msets [e1 e2 e3 e4] (edges g))))))
+
+(deftest test-gattrs
+  (with-state [g (pgraph :ignored1 :ignored2)]
+    (is (= {} (pg/gattrs g)))
+    ;(pg/set-gattr :most-recent-x 22)
+    (assoc :most-recent-x 22)
+    ;(is (= 22 (pg/gattr g :most-recent-x)))
+    (is (= 22 (get g :most-recent-x)))
+    ;(pg/set-gattrs {:a 1})
+    #_(is (= {:a 1} (pg/gattrs g)))))

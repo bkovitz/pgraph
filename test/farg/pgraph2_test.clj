@@ -116,8 +116,8 @@
     (is (= :n3 (other-id g :n2 e2)))
     (is (= :n2 (other-id g :n3 e2)))
 
-    (is (=msets [:n2] (neighbors-of g :n1)))
-    (is (=msets [:n1 :n3] (neighbors-of g :n2)))))
+    (is (=msets [:n2] (elem->neighbors g :n1)))
+    (is (=msets [:n1 :n3] (elem->neighbors g :n2)))))
 
 (deftest test-edges-to-edges
   (with-state [g (pgraph :n1 :n2 :n3 :n4)]

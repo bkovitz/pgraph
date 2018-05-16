@@ -107,7 +107,7 @@
 
 ;;; Making nodes and edges
 
-(defn next-id
+(defn- next-id
   "Returns [g id] where id is a new, unique id starting with stem."
   [g stem]
   (let [elems (get g :elems)
@@ -203,8 +203,23 @@
 
 ;;; Ports and neighbors
 
+(defn port->elem [[id port-label]]
+  id)
+
 (defidfunc edge->incident-ports [g edgeid]
   (S/select-one [:elems edgeid ::incident-ports] g))
+
+;TODO UT
+(defidfunc edge->incident-elems [g edgeid]
+  (map port->elem (edge->incident-ports g edgeid)))
+
+;TODO UT
+(defidfunc edge-as-map [g edgeid]
+  (merge (attrs g edgeid)
+         (->> (edge->incident-ports g edgeid)
+              (map reverse)  ; (port-label id)
+              (map vec)      ; [port-label id]
+              (into {}))))
 
 (def3idfuncs elem->incident-edges node->incident-edges edge->incident-edges
   [g id]
@@ -233,9 +248,43 @@
     :let [[iset-id _] (second iset)]
     iset-id))
 
-(defidfunc neighbors-of [g id]
+;TODO UT
+(defn other-port [g [id port-label :as port] edgeid]
+  (cond
+    :let [ports (seq (edge->incident-ports g edgeid))]
+    (empty? ports)
+      nil
+    :let [that-port (first ports)]
+    (not= port that-port)
+      that-port
+    (second ports)))
+
+(defidfunc elem->neighbors
+  ;"Returns lazy seq of all elems connected by an edge to any port of id."
+  [g id]
   (->> (elem->incident-edges g id)
        (map #(other-id g id %))
+       distinct))
+
+(defidfunc elem->neighbor?
+  ;"Returns logical true iff thatid is connected by an edge to any port of id."
+  [g id thatid]
+  (some #{thatid} (elem->neighbors g id)))
+
+;TODO UT
+(defn port->neighbors
+  "Returns lazy seq of all elems connected by an edge to [id port-label]."
+  [g [id port-label :as port]]
+  (->> (port->incident-edges g port)
+       (map #(other-id g id %))
+       distinct))
+
+;TODO UT
+(defn port->neighboring-ports
+  "Returns lazy seq of all ports connected by an edge to [id port-label]."
+  [g [id port-label :as port]]
+  (->> (port->incident-edges g port)
+       (map #(other-port g port %))
        distinct))
 
 ;;; Removing elements
@@ -283,3 +332,49 @@
     (->> (reduce remove-edge* g (transitive-closure-of-edges-to-edges g id))
          (S/setval [:elems id] S/NONE))
     g))
+
+;;; Printing
+
+;TODO UT
+(defn attrstr [g id]
+  (let [as (user-attrs g id)]
+    (if (empty? as) "" (str \space (map-str as)))))
+
+;TODO UT
+(defn edgestr [g edgeid]
+  (with-out-str
+    (print (str edgeid \space))
+    (cond
+      :let [ports (edge->incident-ports g edgeid)]
+      (= 1 (count ports))
+        (pr (first ports) (first ports))
+      :do (print (->> ports (map pr-str) sort (clojure.string/join \space)))
+      :do (print (attrstr g edgeid)))))
+
+;TODO UT
+(defn pprint-nodes [g]
+  (cond
+    :let [ns (sort-by str (nodes g))]
+    (empty? ns)
+      (println "Nodes: None")
+    (do
+      (println "Nodes:")
+      (doseq [node ns]
+        (println (str "  " node (attrstr g node)))))))
+
+;TODO UT
+(defn pprint-edges [g]
+  (cond
+    :let [es (sort-by str (edges g))]
+    (empty? es)
+      (println "Edges: None")
+    (do
+      (println "Edges:")
+      (doseq [s (->> es (map #(edgestr g %)))]
+        (println \space s)))))
+
+;TODO UT
+(defn pprint [g]
+  (println "Gattrs:" (gattrs g))
+  (pprint-nodes g)
+  (pprint-edges g))

@@ -348,7 +348,11 @@
       :let [ports (edge->incident-ports g edgeid)]
       (= 1 (count ports))
         (pr (first ports) (first ports))
-      :do (print (->> ports (map pr-str) sort (clojure.string/join \space)))
+      :do (print (->> ports
+                   (map #(map pr-str %))
+                   (sort-by #(-> % reverse vec))
+                   (map (fn [[id port-label]] (<< "[~{id} ~{port-label}]")))
+                   (clojure.string/join \space)))
       :do (print (attrstr g edgeid)))))
 
 ;TODO UT
